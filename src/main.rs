@@ -12,12 +12,15 @@ const HIDDEN_SIZE: usize = 32;
 const NUM_HIDDEN_LAYERS: usize = 4;
 const OUTPUT_SIZE: usize = 3;
 
+/// Encapsulates the set of weights for the neural network
 struct Net {
     first: DMatrix<f32>,
     middle: Vec<DMatrix<f32>>,
     last: DMatrix<f32>,
 }
 
+/// Encapsulates all values for an evaluation of a neural network (note that each
+/// column is a different independent sample).
 struct Eval {
     layers: Vec<DMatrix<f32>>,
 }
@@ -67,6 +70,7 @@ impl Net {
                 1 => rx,
                 2 => ry,
                 _ => {
+                    // Add extra Fourier features to help capture high-frequency detail
                     let n = (i - 3) % 4;
                     let freq = (((i - 3) / 4) as f32) + 1.0;
                     let m = freq * 2.0 * PI;
@@ -220,6 +224,7 @@ impl Eval {
 }
 
 fn main() {
+    // Load target image
     let im = image::open("data/photo.jpg").unwrap();
     let width = im.width();
     let height = im.height();
@@ -229,6 +234,9 @@ fn main() {
     let block_size = 1u32 << ln_block_size;
     let mut samps = Vec::new();
     for o in 0..(block_size * block_size) {
+
+        // On every round, a different set of sample points are used, but every pixel in the image
+        // is hit eventually. Here, we implement a quasirandom sequence with that property.
         let mut phase_samps = Vec::new();
         let seq = |n: u32| {
             let n = (n << 1) | (n >> 2);
@@ -301,10 +309,12 @@ fn main() {
         let target = &targets[i % samps.len()];
         let d_output = Net::d_output(target, eval.res());
 
+        // Update moments for Adam optimizer
         let grad = net.grad(&eval, &d_output);
         vel = &(&vel * vel_decay) + &(&grad * (1f32 - vel_decay));
         var = &(&var * var_decay) + &(&Net::point_sqr(&grad) * (1f32 - var_decay));
 
+        // Update neural net weights
         let rate = 0.01 / (1.0 + 0.001 * (i as f32));
         net.update(
             rate,
@@ -313,6 +323,7 @@ fn main() {
             &(&var * (1.0 / (1.0 - var_decay.powf(i as f32)))),
         );
 
+        // Print out status every once in a while
         if i % 100 == 0 {
             let eval = net.eval(full_input.clone());
             let mut oim = image::ImageBuffer::new(width, height);
